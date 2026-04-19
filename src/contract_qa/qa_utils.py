@@ -6,6 +6,12 @@ from typing import Any
 import numpy as np
 
 
+def sanitize_questions(questions: list[str]) -> list[str]:
+    # Some upstream QA datasets contain malformed whitespace-only questions.
+    # Stripping them avoids tokenizer truncation errors with only_second truncation.
+    return [question.strip() for question in questions]
+
+
 def build_global_attention_mask(sequence_ids: list[int | None], attention_mask: list[int]) -> list[int]:
     global_attention = []
     for seq_id, attn in zip(sequence_ids, attention_mask, strict=False):
@@ -25,7 +31,7 @@ def prepare_train_features(
     doc_stride: int,
 ) -> dict[str, list[Any]]:
     tokenized_examples = tokenizer(
-        examples["question"],
+        sanitize_questions(examples["question"]),
         examples["context"],
         truncation="only_second",
         max_length=max_seq_length,
@@ -93,7 +99,7 @@ def prepare_validation_features(
     doc_stride: int,
 ) -> dict[str, list[Any]]:
     tokenized_examples = tokenizer(
-        examples["question"],
+        sanitize_questions(examples["question"]),
         examples["context"],
         truncation="only_second",
         max_length=max_seq_length,
@@ -193,4 +199,3 @@ def postprocess_qa_predictions(
         }
 
     return outputs
-

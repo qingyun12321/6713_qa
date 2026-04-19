@@ -418,6 +418,116 @@ uv run python "scripts/predict.py" \
   --threshold 7.921875
 ```
 
+## SQuAD v2 Runbook
+
+Use this path when fine-tuning from the raw pretrained `longformer-base-4096` weights on SQuAD v2, rather than resuming from an existing QA checkpoint.
+
+### 1. Download and prepare SQuAD v2
+
+```bash
+uv run python "scripts/prepare_squad_v2.py" \
+  --output-dir "outputs/squad_v2_prepared" \
+  --seed 42
+```
+
+This command:
+
+- downloads `rajpurkar/squad_v2`
+- writes the standard input format expected by this project:
+  - `train.json`
+  - `validation.json`
+  - `test.json`
+- keeps the official `train` split as training data
+- splits the official `validation` split 1:1 into new `validation` and `test`
+- keeps the split balanced by stratifying on `is_impossible`
+- writes `summary.json` and `split_manifest.json`
+
+### 2. Train on SQuAD v2 for 1 epoch from pretrained weights
+
+Recommended first-run settings for this setup:
+
+- `max_seq_length=512`
+- `doc_stride=128`
+- `learning_rate=3e-5`
+- `per_device_train_batch_size=4`
+- `gradient_accumulation_steps=2`
+- `num_train_epochs=1`
+
+Why `3e-5` here:
+
+- this run starts from raw pretrained Longformer weights, not from an already fine-tuned QA checkpoint
+- with only `1` epoch, `3e-5` is a stronger and more standard first-pass QA fine-tuning rate than `1e-5`
+- if training is unstable, the first fallback to try is `2e-5`
+
+```bash
+uv run python "scripts/train_qa.py" \
+  --train-path "outputs/squad_v2_prepared/train.json" \
+  --model-path "models/longformer-base-4096" \
+  --output-dir "outputs/squad_v2_epoch1_seq512_stride128_bs4_ga2" \
+  --max-seq-length 512 \
+  --doc-stride 128 \
+  --learning-rate 3e-5 \
+  --per-device-train-batch-size 4 \
+  --gradient-accumulation-steps 2 \
+  --num-train-epochs 1 \
+  --max-steps -1 \
+  --save-steps 1000 \
+  --save-total-limit 2 \
+  --logging-steps 50 \
+  --preprocess-chunk-size 100
+```
+
+### 3. Search the best no-answer threshold on the new validation split
+
+`--max-answer-length` is an evaluation setting, not a training setting. For SQuAD v2, use `64`.
+
+```bash
+uv run python "scripts/evaluate_qa.py" \
+  --data-path "outputs/squad_v2_prepared/validation.json" \
+  --model-path "outputs/squad_v2_epoch1_seq512_stride128_bs4_ga2" \
+  --output-dir "outputs/squad_v2_epoch1_seq512_stride128_bs4_ga2_val" \
+  --max-seq-length 512 \
+  --doc-stride 128 \
+  --max-answer-length 64 \
+  --per-device-eval-batch-size 4 \
+  --search-threshold \
+  --preprocess-chunk-size 100
+```
+
+### 4. Evaluate on the new test split with the frozen validation threshold
+
+First read the best validation threshold:
+
+```bash
+VAL_THRESHOLD=$(uv run python - <<'PY'
+import json
+from pathlib import Path
+
+summary = json.loads(
+    Path("outputs/squad_v2_epoch1_seq512_stride128_bs4_ga2_val/evaluation_summary.json").read_text(
+        encoding="utf-8"
+    )
+)
+print(summary["selected_threshold"])
+PY
+)
+```
+
+Then run test evaluation:
+
+```bash
+uv run python "scripts/evaluate_qa.py" \
+  --data-path "outputs/squad_v2_prepared/test.json" \
+  --model-path "outputs/squad_v2_epoch1_seq512_stride128_bs4_ga2" \
+  --output-dir "outputs/squad_v2_epoch1_seq512_stride128_bs4_ga2_test" \
+  --max-seq-length 512 \
+  --doc-stride 128 \
+  --max-answer-length 64 \
+  --per-device-eval-batch-size 4 \
+  --threshold "$VAL_THRESHOLD" \
+  --preprocess-chunk-size 100
+```
+
 ## What To Lock Next
 
 - Compare a longer run of `3072 + 256` against one run of `4096 + 256`.
