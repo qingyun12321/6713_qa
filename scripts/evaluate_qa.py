@@ -17,9 +17,9 @@ SRC_DIR = PROJECT_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from contract_qa_longformer.data_utils import iter_json_array_items, save_json
-from contract_qa_longformer.metrics import evaluate_prediction_records, search_best_threshold
-from contract_qa_longformer.qa_utils import postprocess_qa_predictions, prepare_validation_features
+from contract_qa.data_utils import iter_json_array_items, save_json
+from contract_qa.metrics import evaluate_prediction_records, search_best_threshold
+from contract_qa.qa_utils import postprocess_qa_predictions, prepare_validation_features
 
 LOG_PATH: Path | None = None
 

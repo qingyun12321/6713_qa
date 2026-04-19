@@ -13,8 +13,8 @@ SRC_DIR = PROJECT_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from contract_qa_longformer.data_utils import load_json
-from contract_qa_longformer.qa_utils import prepare_validation_features
+from contract_qa.data_utils import load_json
+from contract_qa.qa_utils import prepare_validation_features
 
 
 def parse_args() -> argparse.Namespace:
@@ -49,4 +49,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -25,7 +25,7 @@ contract_qa/
 │   ├── train_qa.py
 │   ├── evaluate_qa.py
 │   └── predict.py
-└── src/contract_qa_longformer/
+└── src/contract_qa/
     ├── __init__.py
     ├── data_utils.py
     ├── metrics.py
