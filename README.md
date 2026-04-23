@@ -1,26 +1,50 @@
-# Contract QA Longformer Fine-Tuning
+# Contract QA Longformer Experiments
 
-This repository contains the executable plan and starter code for the Part C task: fine-tuning a model on the contract QA dataset without using SQuAD.
+This repository contains preprocessing, training, evaluation, and inference scripts for extractive question answering with no-answer detection on two datasets:
 
-## Scope
+- `CUAD`, prepared from local flattened JSON files
+- `SQuAD`, prepared from the Hugging Face `rajpurkar/squad_v2` dataset
 
-- Task definition: extractive question answering with no-answer detection in contract review.
-- Model family: local `longformer-base-4096`.
-- Data sources:
-  - `dataset/data/flat_train.json`
-  - `dataset/data/flat_test.json`
-- Environment: managed from `pyproject.toml` and run with `uv`.
+The codebase uses a shared Longformer-based QA pipeline across both datasets, with dataset-specific preparation scripts and common training, evaluation, and post-processing utilities.
+
+## Overview
+
+- Task: extractive QA with no-answer detection
+- Model family: local `longformer-base-4096`
+- Runtime: Python `3.11+`, managed through `uv`
+- Outputs: written under `outputs/` when scripts are run
+
+Both datasets are normalized into the same JSON schema:
+
+```json
+{
+  "id": "...",
+  "title": "...",
+  "context": "...",
+  "question": "...",
+  "answers": {
+    "text": ["..."],
+    "answer_start": [123]
+  },
+  "is_impossible": false
+}
+```
 
 ## Project Layout
 
 ```text
-contract_qa/
+<repo-root>/
 ├── README.md
+├── pyproject.toml
+├── uv.lock
 ├── configs/
+│   └── experiment_runbook.md
 ├── docs/
-├── outputs/
+│   ├── cuad_finetuning_report.md
+│   └── squad_finetuning_report.md
 ├── scripts/
-│   ├── prepare_data.py
+│   ├── prepare_cuad.py
+│   ├── prepare_squad.py
 │   ├── profile_lengths.py
 │   ├── train_qa.py
 │   ├── evaluate_qa.py
@@ -32,513 +56,70 @@ contract_qa/
     └── qa_utils.py
 ```
 
-## Decisions Locked In
+## Core Scripts
 
-### Data splitting
+- `scripts/prepare_cuad.py`: prepares grouped train and validation splits from the local CUAD-style flat JSON files and keeps the provided test split.
+- `scripts/prepare_squad.py`: downloads and normalizes SQuAD into the shared project format, then splits the official validation set into validation and test.
+- `scripts/profile_lengths.py`: profiles sliding-window expansion for different `max_seq_length` and `doc_stride` combinations.
+- `scripts/train_qa.py`: fine-tunes a QA checkpoint on one prepared training split.
+- `scripts/evaluate_qa.py`: evaluates a checkpoint on a prepared validation or test split and writes metrics, predictions, and logs.
+- `scripts/predict.py`: runs single-example inference from `--context` or `--context-file`.
 
-- Keep the provided `flat_test.json` as the final test set.
-- Split only `flat_train.json` into train and validation.
-- Split by `title`, not by row, to avoid contract leakage across train and validation.
+## Quick Start
 
-### Data format
-
-- Convert `answers` from list-of-dicts into the Hugging Face QA format:
-  - `{"text": [...], "answer_start": [...]}`
-- Preserve `is_impossible` as the no-answer label.
-
-### Long document handling
-
-- Use Longformer with sliding window preprocessing.
-- Use `truncation="only_second"` because question is short and context is long.
-- Use `return_overflowing_tokens=True` and a configurable `doc_stride`.
-- Apply global attention to question-side tokens and special tokens.
-
-### Evaluation
-
-- Report `Exact Match` and `F1`.
-- Also report no-answer metrics:
-  - `no_answer_accuracy`
-  - `no_answer_precision`
-  - `no_answer_recall`
-  - `no_answer_f1`
-- Support multiple reference answers by taking the best match.
-- Search the no-answer threshold on validation, then freeze it for test.
-
-### Command-line inference
-
-- Support:
-  - `--question`
-  - `--context`
-  - `--context-file`
-- Return answer text plus null-vs-span score information.
-
-## Baseline Parameters
-
-These are the current baseline settings after the first smoke-test round.
-
-| Parameter | Initial value | Why |
-| --- | --- | --- |
-| `max_seq_length` | `3072` | Smoke test runs cleanly on the local 16GB GPU and keeps feature expansion manageable |
-| `doc_stride` | `256` | Current full-data baseline that reduces overlap and total feature count |
-| `max_answer_length` | `256` | Better fit than SQuAD-style defaults for long contractual spans |
-| `learning_rate` | `2e-5` | Stable first-pass full fine-tuning default |
-| `per_device_train_batch_size` | `1` | Required by Longformer memory cost |
-| `gradient_accumulation_steps` | `8` | Reasonable effective batch without pushing VRAM too hard |
-| `num_train_epochs` | `1` | Best first full-data run target on this machine |
-| `gradient_checkpointing` | `on` | Confirmed useful and compatible in smoke testing |
-| `precision` | `bf16` when available | Confirmed active on the local GPU during smoke testing |
-
-## Smoke-Test Findings
-
-### Data split
-
-- Prepared split saved to `outputs/prepared_data`.
-- Split result:
-  - train: `20150` rows across `367` titles
-  - validation: `2300` rows across `41` titles
-  - test: `4182` rows across `102` titles
-- Validation no-answer ratio is `47.65%`.
-- Test no-answer ratio is `70.25%`.
-
-### Window expansion profile
-
-On a validation sample of `128` examples:
-
-| `max_seq_length` | `doc_stride` | features | expansion |
-| --- | --- | --- | --- |
-| `2048` | `256` | `370` | `2.89x` |
-| `2048` | `512` | `414` | `3.23x` |
-| `2048` | `1024` | `569` | `4.45x` |
-| `3072` | `256` | `288` | `2.25x` |
-| `3072` | `512` | `288` | `2.25x` |
-| `3072` | `1024` | `328` | `2.56x` |
-| `4096` | `256` | `248` | `1.94x` |
-| `4096` | `512` | `248` | `1.94x` |
-| `4096` | `1024` | `248` | `1.94x` |
-
-Interpretation:
-
-- `4096` reduces feature count, but each feature is more expensive.
-- `3072 + 256` is the current default because it keeps runtime lower while still fitting comfortably.
-- The final decision between `3072` and `4096` should be based on a longer real training run, not on preprocessing alone.
-
-## Resource Safety
-
-- Do not run full-dataset preprocessing and model training at the same time on this machine.
-- Do not launch more than one training job concurrently.
-- The machine has shown WSL instability when memory reaches roughly `85% to 90%`.
-- Prefer staged runs:
-  - first `--max-steps 50`
-  - then `--max-steps 200`
-  - then a full epoch only after memory and stability are confirmed
-- Prefer `--preprocess-chunk-size 100` as the safe default on this machine.
-- Keep checkpoint saving relatively infrequent during real training, for example every `500` or `1000` optimizer steps, to avoid extra I/O pressure.
-- If the machine becomes unstable, lower load before changing the model:
-  - close notebooks or browsers
-  - avoid parallel CPU-heavy scripts
-  - stop extra GPU workloads
-
-## Time Estimate
-
-This estimate is based on the later `1000`-example real training run, not just the initial smoke tests.
-
-Observed reference run:
-
-- `1000` training examples
-- `max_seq_length=3072`
-- `doc_stride=256`
-- `num_train_epochs=1`
-- `train_features=4921`
-- `resolved_total_train_steps=616`
-- `train_runtime ~= 1580.57s ~= 26.3 minutes`
-
-Practical extrapolation:
-
-- Full train split size is `20150` examples.
-- The `1000`-example run suggests about `20.15x` more raw examples.
-- At the same `3072 + 256` setting, that implies a rough full-epoch training budget near `9 hours`.
-Recommended planning numbers for the current full-data baseline:
-
-- `1` epoch at `3072 + 256`: budget about `9 to 11 hours`
-- `2` epochs at `3072 + 256`: budget about `18 to 22 hours`
-
-Recommendation:
-
-- Treat `1 epoch` as the first real full-data target.
-- Only consider `2` epochs after checking validation quality and machine stability.
-- For safety, start the full run only when the machine can be left undisturbed for at least half a day.
-
-## Speed Trade-Offs
-
-Changing `max_seq_length` and `doc_stride` can absolutely change runtime, but the effect is not identical.
-
-- Lower `max_seq_length` usually makes each training feature cheaper:
-  - less GPU memory per forward/backward pass
-  - less compute per step
-- But lower `max_seq_length` can also create more sliding-window features for the same document.
-- So lowering `max_seq_length` does not guarantee faster end-to-end training. It often reduces per-step cost, but may increase the number of steps needed.
-
-- Lower `doc_stride` means less overlap between windows.
-- Less overlap usually means fewer total training features.
-- Fewer total features usually means shorter preprocessing time and shorter total training time.
-- But if `doc_stride` is too small, answers near window boundaries are more likely to be missed, which can hurt model quality.
-
-Practical interpretation for this project:
-
-- Reducing `doc_stride` is the more direct way to reduce total runtime.
-- Reducing `max_seq_length` is a trade-off:
-  - faster per step
-  - but potentially more total windows
-- Good runtime tuning should optimize both:
-  - keep `max_seq_length` large enough to cover long contractual clauses
-  - keep `doc_stride` only as large as needed to avoid losing answer spans at boundaries
-
-Current default remains:
-
-- `max_seq_length=3072`
-- `doc_stride=256`
-
-These are currently the safest quality-first settings that still fit the machine.
-
-## `max_steps` vs `num_train_epochs`
-
-These two settings are related, but they are not the same thing.
-
-- `num_train_epochs` means how many times the training loop should pass over the full expanded training set.
-- `max_steps` means how many optimizer update steps to run before stopping.
-- In the current training script, if `max_steps > 0`, it takes priority and effectively overrides the epoch-based stopping rule.
-
-How that works with gradient accumulation:
-
-- `per_device_train_batch_size=1` means one training feature is processed at a time.
-- `gradient_accumulation_steps=8` means the optimizer updates once every `8` micro-batches.
-- So one optimizer step is not one raw example. It is one accumulated parameter update after several forward and backward passes.
-
-Practical interpretation:
-
-- Use `max_steps` for smoke tests and safe staged checks.
-- Use `num_train_epochs` for the real full training run.
-- For the final full run, set `max_steps=-1` so training stops based on epochs rather than an artificial step cap.
-
-Recommended staged plan:
-
-- smoke check: `max_steps=50`, `num_train_epochs=1`
-- medium check: `max_steps=200`, `num_train_epochs=1`
-- first real run: `max_steps=-1`, `num_train_epochs=1`
-- only consider `num_train_epochs=2` if the first full epoch improves answerable examples and the machine stays stable
-
-## Commands
-
-Run everything from the `contract_qa` root directory.
-
-### 1. Prepare grouped data splits
+Install dependencies from the repository root:
 
 ```bash
-uv run python "scripts/prepare_data.py" \
+uv sync
+```
+
+Prepare CUAD:
+
+```bash
+uv run python "scripts/prepare_cuad.py" \
   --raw-train-path "dataset/data/flat_train.json" \
   --raw-test-path "dataset/data/flat_test.json" \
-  --output-dir "outputs/prepared_data"
+  --output-dir "outputs/cuad_prepared"
 ```
 
-### 2. Profile window expansion before training
+Prepare SQuAD:
 
 ```bash
-uv run python "scripts/profile_lengths.py" \
-  --data-path "outputs/prepared_data/validation.json" \
-  --model-path "models/longformer-base-4096" \
-  --sample-size 256 \
-  --max-seq-lengths 2048 3072 4096 \
-  --doc-strides 256 512 1024
+uv run python "scripts/prepare_squad.py" \
+  --output-dir "outputs/squad_prepared"
 ```
 
-### 3. Full-data training for 1 epoch
-
-Note:
-
-- `--max-answer-length` is not a training argument.
-- It is only used by `evaluate_qa.py` and `predict.py` during answer postprocessing.
-- `train_qa.py` now writes a line-buffered log file at `OUTPUT_DIR/train.log` by default.
-- If training crashes before completion, check `train.log` first, then any `checkpoint-*` folders, then `run_summary.json` if it exists.
-- `train_qa.py` now preprocesses data in chunks and logs a memory snapshot after each chunk.
-- You can control chunk size with `--preprocess-chunk-size`. Use a smaller value such as `100` or `200` if WSL is unstable.
-- `train_qa.py` now streams training examples from JSON instead of loading the whole train set into memory at once.
-- `train_qa.py` no longer accepts validation input or runs validation during training.
+Train a checkpoint on a prepared split:
 
 ```bash
 uv run python "scripts/train_qa.py" \
-  --train-path "outputs/prepared_data/train.json" \
+  --train-path "outputs/cuad_prepared/train.json" \
   --model-path "models/longformer-base-4096" \
-  --output-dir "outputs/train_full_epoch1_3072_stride256" \
-  --max-seq-length 3072 \
-  --doc-stride 256 \
-  --learning-rate 2e-5 \
-  --per-device-train-batch-size 1 \
-  --gradient-accumulation-steps 8 \
-  --num-train-epochs 1 \
-  --max-steps -1 \
-  --save-steps 500 \
-  --save-total-limit 2 \
-  --logging-steps 20 \
-  --preprocess-chunk-size 100 \
-  --gradient-checkpointing
+  --output-dir "outputs/train_example"
 ```
 
-This run:
-
-- uses the full grouped training split of `20150` examples
-- keeps the current full-data baseline `max_seq_length=3072`, `doc_stride=256`
-- runs a real `1` epoch because `--max-steps -1`
-- keeps the streamed low-memory preprocessing path
-- should be budgeted at about `9 to 11 hours` on this machine
-
-### 3b. One epoch on 1000 samples with lower overlap
-
-```bash
-uv run python "scripts/train_qa.py" \
-  --train-path "outputs/prepared_data/train.json" \
-  --model-path "models/longformer-base-4096" \
-  --output-dir "outputs/train_1000_epoch1_stride256" \
-  --max-seq-length 3072 \
-  --doc-stride 256 \
-  --learning-rate 2e-5 \
-  --per-device-train-batch-size 1 \
-  --gradient-accumulation-steps 8 \
-  --num-train-epochs 1 \
-  --max-steps -1 \
-  --max-train-samples 1000 \
-  --save-steps 100 \
-  --save-total-limit 2 \
-  --logging-steps 10 \
-  --preprocess-chunk-size 100 \
-  --gradient-checkpointing
-```
-
-This run:
-
-- uses only the first `1000` training examples
-- runs a real `1` epoch because `--max-steps -1`
-- reduces overlap to `256`
-- keeps the streamed low-memory preprocessing path
-
-Resume from a saved checkpoint:
-
-```bash
-uv run python "scripts/train_qa.py" \
-  --train-path "outputs/prepared_data/train.json" \
-  --model-path "models/longformer-base-4096" \
-  --output-dir "outputs/train_full_epoch1_3072_stride256" \
-  --max-seq-length 3072 \
-  --doc-stride 256 \
-  --learning-rate 2e-5 \
-  --per-device-train-batch-size 1 \
-  --gradient-accumulation-steps 8 \
-  --num-train-epochs 1 \
-  --max-steps -1 \
-  --save-steps 500 \
-  --save-total-limit 2 \
-  --logging-steps 20 \
-  --preprocess-chunk-size 100 \
-  --gradient-checkpointing \
-  --resume-from-checkpoint "outputs/train_full_epoch1_3072_stride256/checkpoint-500"
-```
-
-### 4. Full validation evaluation for a new checkpoint
+Evaluate a checkpoint:
 
 ```bash
 uv run python "scripts/evaluate_qa.py" \
-  --data-path "outputs/prepared_data/validation.json" \
-  --model-path "outputs/train_full_epoch1_3072_stride256" \
-  --output-dir "outputs/eval_train_full_epoch1_3072_stride256_val" \
-  --max-seq-length 3072 \
-  --doc-stride 256 \
-  --max-answer-length 256 \
-  --per-device-eval-batch-size 1 \
-  --search-threshold \
-  --preprocess-chunk-size 100
+  --data-path "outputs/cuad_prepared/validation.json" \
+  --model-path "outputs/train_example" \
+  --output-dir "outputs/eval_example"
 ```
 
-- `evaluate_qa.py` now evaluates in chunks instead of tokenizing the full validation file at once.
-- It only keeps the minimum example metadata needed for metrics and prediction export, rather than retaining full `context` and `question` strings in memory after each chunk finishes.
-- For this machine, keep `--preprocess-chunk-size 100` as the safe default unless evaluation memory usage is clearly low.
-- `evaluate_qa.py` now prints chunk-level progress logs in JSON so long-running evaluation is easier to monitor.
-- When CUDA is available, evaluation now enables `bf16_full_eval` to reduce GPU-side evaluation cost.
-- For a brand-new checkpoint, keep `--search-threshold` on so the best validation threshold is found automatically.
-
-### 4b. Full validation evaluation for the current 1000-sample checkpoint
-
-```bash
-uv run python "scripts/evaluate_qa.py" \
-  --data-path "outputs/prepared_data/validation.json" \
-  --model-path "outputs/train_1000_epoch1_stride256" \
-  --output-dir "outputs/eval_train_1000_epoch1_stride256_val_chunked" \
-  --max-seq-length 3072 \
-  --doc-stride 256 \
-  --max-answer-length 256 \
-  --per-device-eval-batch-size 1 \
-  --search-threshold \
-  --preprocess-chunk-size 100
-```
-
-- This command evaluates all `2300` validation examples.
-- It reuses the same window settings as the current checkpoint: `max_seq_length=3072` and `doc_stride=256`.
-- Outputs will be written to:
-  - `evaluation_summary.json`
-  - `predictions.json`
-
-### 4c. Re-run validation for the same checkpoint with a fixed threshold
-
-For the current `1000`-sample checkpoint, the best validation threshold already found is `7.921875`.
-
-```bash
-uv run python "scripts/evaluate_qa.py" \
-  --data-path "outputs/prepared_data/validation.json" \
-  --model-path "outputs/train_1000_epoch1_stride256" \
-  --output-dir "outputs/eval_train_1000_epoch1_stride256_val_fixed_threshold" \
-  --max-seq-length 3072 \
-  --doc-stride 256 \
-  --max-answer-length 256 \
-  --per-device-eval-batch-size 1 \
-  --threshold 7.921875 \
-  --preprocess-chunk-size 100
-```
-
-- Use this fixed-threshold version only for repeated evaluation of the same checkpoint.
-- If the checkpoint changes, run section `4` or `4b` with `--search-threshold` again.
-
-### 5. Command-line prediction
+Run single-document inference:
 
 ```bash
 uv run python "scripts/predict.py" \
-  --model-path "outputs/train_1000_epoch1_stride256" \
-  --question 'Highlight the parts (if any) of this contract related to "Parties" that should be reviewed by a lawyer.' \
-  --context-file "/path/to/contract.txt" \
-  --max-seq-length 3072 \
-  --doc-stride 256 \
-  --max-answer-length 256 \
-  --threshold 7.921875
+  --model-path "outputs/train_example" \
+  --question "What is the governing law?" \
+  --context-file "/path/to/contract.txt"
 ```
 
-## SQuAD v2 Runbook
+For tested parameter profiles, dataset-specific runbooks, and command variants, use [configs/experiment_runbook.md](configs/experiment_runbook.md).
 
-Use this path when fine-tuning from the raw pretrained `longformer-base-4096` weights on SQuAD v2, rather than resuming from an existing QA checkpoint.
+## Documentation
 
-### 1. Download and prepare SQuAD v2
-
-```bash
-uv run python "scripts/prepare_squad_v2.py" \
-  --output-dir "outputs/squad_v2_prepared" \
-  --seed 42
-```
-
-This command:
-
-- downloads `rajpurkar/squad_v2`
-- writes the standard input format expected by this project:
-  - `train.json`
-  - `validation.json`
-  - `test.json`
-- keeps the official `train` split as training data
-- splits the official `validation` split 1:1 into new `validation` and `test`
-- keeps the split balanced by stratifying on `is_impossible`
-- writes `summary.json` and `split_manifest.json`
-
-### 2. Train on SQuAD v2 for 1 epoch from pretrained weights
-
-Recommended first-run settings for this setup:
-
-- `max_seq_length=512`
-- `doc_stride=128`
-- `learning_rate=3e-5`
-- `per_device_train_batch_size=4`
-- `gradient_accumulation_steps=2`
-- `num_train_epochs=1`
-
-Why `3e-5` here:
-
-- this run starts from raw pretrained Longformer weights, not from an already fine-tuned QA checkpoint
-- with only `1` epoch, `3e-5` is a stronger and more standard first-pass QA fine-tuning rate than `1e-5`
-- if training is unstable, the first fallback to try is `2e-5`
-
-```bash
-uv run python "scripts/train_qa.py" \
-  --train-path "outputs/squad_v2_prepared/train.json" \
-  --model-path "models/longformer-base-4096" \
-  --output-dir "outputs/squad_v2_epoch1_seq512_stride128_bs4_ga2" \
-  --max-seq-length 512 \
-  --doc-stride 128 \
-  --learning-rate 3e-5 \
-  --per-device-train-batch-size 4 \
-  --gradient-accumulation-steps 2 \
-  --num-train-epochs 1 \
-  --max-steps -1 \
-  --save-steps 1000 \
-  --save-total-limit 2 \
-  --logging-steps 50 \
-  --preprocess-chunk-size 100
-```
-
-### 3. Search the best no-answer threshold on the new validation split
-
-`--max-answer-length` is an evaluation setting, not a training setting. For SQuAD v2, use `64`.
-
-```bash
-uv run python "scripts/evaluate_qa.py" \
-  --data-path "outputs/squad_v2_prepared/validation.json" \
-  --model-path "outputs/squad_v2_epoch1_seq512_stride128_bs4_ga2" \
-  --output-dir "outputs/squad_v2_epoch1_seq512_stride128_bs4_ga2_val" \
-  --max-seq-length 512 \
-  --doc-stride 128 \
-  --max-answer-length 64 \
-  --per-device-eval-batch-size 4 \
-  --search-threshold \
-  --preprocess-chunk-size 100
-```
-
-### 4. Evaluate on the new test split with the frozen validation threshold
-
-First read the best validation threshold:
-
-```bash
-VAL_THRESHOLD=$(uv run python - <<'PY'
-import json
-from pathlib import Path
-
-summary = json.loads(
-    Path("outputs/squad_v2_epoch1_seq512_stride128_bs4_ga2_val/evaluation_summary.json").read_text(
-        encoding="utf-8"
-    )
-)
-print(summary["selected_threshold"])
-PY
-)
-```
-
-Then run test evaluation:
-
-```bash
-uv run python "scripts/evaluate_qa.py" \
-  --data-path "outputs/squad_v2_prepared/test.json" \
-  --model-path "outputs/squad_v2_epoch1_seq512_stride128_bs4_ga2" \
-  --output-dir "outputs/squad_v2_epoch1_seq512_stride128_bs4_ga2_test" \
-  --max-seq-length 512 \
-  --doc-stride 128 \
-  --max-answer-length 64 \
-  --per-device-eval-batch-size 4 \
-  --threshold "$VAL_THRESHOLD" \
-  --preprocess-chunk-size 100
-```
-
-## What To Lock Next
-
-- Compare a longer run of `3072 + 256` against one run of `4096 + 256`.
-- Tune the final validation threshold only after a real checkpoint exists.
-- Check whether answerable examples improve enough to keep `max_answer_length=256`; if not, test `384`.
-- Keep `batch_size=1`, `gradient_accumulation_steps=8`, `gradient_checkpointing=on` unless a longer run shows instability.
-
-## Planned Deliverables
-
-- Grouped split manifest and summary stats.
-- Fine-tuning script.
-- Evaluation script with threshold tuning.
-- CLI prediction script.
-- Smoke-test results and final parameter table in Markdown.
+- [configs/experiment_runbook.md](configs/experiment_runbook.md): parameter choices, profiling notes, runtime guidance, and reproducible command examples for CUAD and SQuAD.
+- [docs/cuad_finetuning_report.md](docs/cuad_finetuning_report.md): detailed write-up of the CUAD fine-tuning experiments.
+- [docs/squad_finetuning_report.md](docs/squad_finetuning_report.md): detailed write-up of the SQuAD fine-tuning experiments.

@@ -18,12 +18,12 @@ from contract_qa.data_utils import save_json, summarize_examples
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Download SQuAD v2, normalize it into the project's QA JSON format, "
+            "Download SQuAD (default: rajpurkar/squad_v2), normalize it into the project's QA JSON format, "
             "and split the official validation set 1:1 into validation and test."
         )
     )
     parser.add_argument("--dataset-name", type=str, default="rajpurkar/squad_v2")
-    parser.add_argument("--output-dir", type=Path, default=PROJECT_DIR / "outputs" / "squad_v2_prepared")
+    parser.add_argument("--output-dir", type=Path, default=PROJECT_DIR / "outputs" / "squad_prepared")
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
 
@@ -119,7 +119,7 @@ def main() -> None:
         },
     )
 
-    print(f"Saved prepared SQuAD v2 data to {args.output_dir}")
+    print(f"Saved prepared SQuAD data to {args.output_dir}")
     print(f"Train rows: {len(train_examples)}")
     print(f"Validation rows: {len(validation_examples)}")
     print(f"Test rows: {len(test_examples)}")

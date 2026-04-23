@@ -1,8 +1,8 @@
-# SQuAD v2 Fine-Tuning Report for Longformer
+# SQuAD Fine-Tuning Report for Longformer
 
 ## 1. Objective
 
-This report documents the full experimental process for fine-tuning the local `longformer-base-4096` checkpoint on **SQuAD v2**.
+This report documents the full experimental process for fine-tuning the local `longformer-base-4096` checkpoint on **SQuAD**, using the Hugging Face `rajpurkar/squad_v2` dataset.
 
 The goal of this experiment was to answer a practical migration question:
 
@@ -41,9 +41,9 @@ The task was framed as **extractive QA with no-answer detection**:
 
 This is the same core QA formulation already implemented in:
 
-- [train_qa.py](/workspace/contract_qa/scripts/train_qa.py)
-- [evaluate_qa.py](/workspace/contract_qa/scripts/evaluate_qa.py)
-- [qa_utils.py](/workspace/contract_qa/src/contract_qa/qa_utils.py)
+- [train_qa.py](../scripts/train_qa.py)
+- [evaluate_qa.py](../scripts/evaluate_qa.py)
+- [qa_utils.py](../src/contract_qa/qa_utils.py)
 
 ## 3. Dataset Preparation
 
@@ -70,7 +70,7 @@ The original project data preparation path was written for the contract dataset 
 
 SQuAD v2 does not ship in that exact structure, so a dedicated script was added:
 
-- [prepare_squad_v2.py](/workspace/contract_qa/scripts/prepare_squad_v2.py)
+- [prepare_squad.py](../scripts/prepare_squad.py)
 
 This script:
 
@@ -90,7 +90,7 @@ To avoid a skewed no-answer distribution, the split was **stratified by `is_impo
 
 The split manifest is stored in:
 
-- [split_manifest.json](/workspace/contract_qa/outputs/squad_v2_prepared/split_manifest.json)
+- [split_manifest.json](../outputs/squad_prepared/split_manifest.json)
 
 The resulting split sizes were:
 
@@ -114,7 +114,7 @@ This is a good split for evaluation because validation and test have almost iden
 
 The key dataset statistics are stored in:
 
-- [summary.json](/workspace/contract_qa/outputs/squad_v2_prepared/summary.json)
+- [summary.json](../outputs/squad_prepared/summary.json)
 
 Important observations:
 
@@ -145,8 +145,8 @@ This made the question abnormally long and broke `truncation="only_second"` beca
 
 The issue was fixed in two places:
 
-- [prepare_squad_v2.py](/workspace/contract_qa/scripts/prepare_squad_v2.py:31) now strips question and title text during dataset generation
-- [qa_utils.py](/workspace/contract_qa/src/contract_qa/qa_utils.py:9) now also sanitizes questions before tokenization
+- [prepare_squad.py](../scripts/prepare_squad.py) now strips question and title text during dataset generation
+- [qa_utils.py](../src/contract_qa/qa_utils.py) now also sanitizes questions before tokenization
 
 This fix is important because it makes the pipeline robust to malformed whitespace-only or whitespace-heavy questions in future datasets as well.
 
@@ -174,7 +174,7 @@ The final training configuration used for SQuAD v2 was:
 
 The exact run record is stored in:
 
-- [run_summary.json](/workspace/contract_qa/outputs/squad_v2_epoch1_seq512_stride128_bs4_ga2/run_summary.json)
+- [run_summary.json](../outputs/squad_epoch1_seq512_stride128_bs4_ga2/run_summary.json)
 
 ### 4.2 Why `max_seq_length = 512`
 
@@ -250,15 +250,15 @@ So for this SQuAD setup, gradient checkpointing was not needed.
 
 The SQuAD training run used the command documented in:
 
-- [README.md](/workspace/contract_qa/README.md:445)
+- [configs/experiment_runbook.md](../configs/experiment_runbook.md)
 
 Equivalent command:
 
 ```bash
 uv run python "scripts/train_qa.py" \
-  --train-path "outputs/squad_v2_prepared/train.json" \
+  --train-path "outputs/squad_prepared/train.json" \
   --model-path "models/longformer-base-4096" \
-  --output-dir "outputs/squad_v2_epoch1_seq512_stride128_bs4_ga2" \
+  --output-dir "outputs/squad_epoch1_seq512_stride128_bs4_ga2" \
   --max-seq-length 512 \
   --doc-stride 128 \
   --learning-rate 3e-5 \
@@ -274,7 +274,7 @@ uv run python "scripts/train_qa.py" \
 
 ### 5.2 Scale of the run
 
-From [run_summary.json](/workspace/contract_qa/outputs/squad_v2_epoch1_seq512_stride128_bs4_ga2/run_summary.json:1):
+From [run_summary.json](../outputs/squad_epoch1_seq512_stride128_bs4_ga2/run_summary.json):
 
 - raw training examples: `130,319`
 - tokenized training features: `130,550`
@@ -323,7 +323,7 @@ Validation used:
 
 Validation summary is stored in:
 
-- [evaluation_summary.json](/workspace/contract_qa/outputs/squad_v2_epoch1_seq512_stride128_bs4_ga2_val/evaluation_summary.json)
+- [evaluation_summary.json](../outputs/squad_epoch1_seq512_stride128_bs4_ga2_val/evaluation_summary.json)
 
 Best validation threshold for F1:
 
@@ -349,7 +349,7 @@ The validation log shows two very different phases:
 - chunked tokenization and forward prediction were fast
 - threshold search took much longer than the forward pass itself
 
-From [eval.log](/workspace/contract_qa/outputs/squad_v2_epoch1_seq512_stride128_bs4_ga2_val/eval.log):
+From [eval.log](../outputs/squad_epoch1_seq512_stride128_bs4_ga2_val/eval.log):
 
 - the chunked forward pass finished at about `97.91s`
 - the total validation run took about `4004.98s`
@@ -379,7 +379,7 @@ This follows the correct evaluation protocol:
 
 Test summary is stored in:
 
-- [evaluation_summary.json](/workspace/contract_qa/outputs/squad_v2_epoch1_seq512_stride128_bs4_ga2_test/evaluation_summary.json)
+- [evaluation_summary.json](../outputs/squad_epoch1_seq512_stride128_bs4_ga2_test/evaluation_summary.json)
 
 Test metrics were:
 
@@ -398,7 +398,7 @@ Test metrics were:
 
 The test run did not search thresholds, so it was much faster.
 
-From [eval.log](/workspace/contract_qa/outputs/squad_v2_epoch1_seq512_stride128_bs4_ga2_test/eval.log):
+From [eval.log](../outputs/squad_epoch1_seq512_stride128_bs4_ga2_test/eval.log):
 
 - total test runtime: `91.02s`
 
@@ -455,7 +455,7 @@ So the residual error is less about catastrophic misunderstanding and more about
 
 ### 9.1 Error counts
 
-Using [predictions.json](/workspace/contract_qa/outputs/squad_v2_epoch1_seq512_stride128_bs4_ga2_test/predictions.json), the test split had:
+Using [predictions.json](../outputs/squad_epoch1_seq512_stride128_bs4_ga2_test/predictions.json), the test split had:
 
 - total examples: `5,937`
 - non-exact predictions: `1,146`

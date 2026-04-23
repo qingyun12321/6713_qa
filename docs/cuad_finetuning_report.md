@@ -1,8 +1,8 @@
-# Part C Report: Fine-Tuning a Longformer Model for Contract Question Answering
+# CUAD Fine-Tuning Report for Longformer
 
 ## 1. Objective
 
-This report focuses only on **Part C: fine-tune a model** for the contract QA project. The goal of this sub-task was to adapt a pre-trained long-context Transformer model to an extractive contract question answering task with no-answer detection.
+This report documents the CUAD fine-tuning experiment in this repository. The goal was to adapt a pre-trained long-context Transformer model to extractive contract question answering with no-answer detection.
 
 The practical objective was:
 
@@ -50,7 +50,7 @@ Earlier experiments showed that naive preprocessing could cause memory pressure.
 - cached chunked features to disk,
 - and used BF16 on the available GPU.
 
-This implementation is in [train_qa.py](/workspace/contract_qa/scripts/train_qa.py).
+This implementation is in [train_qa.py](../scripts/train_qa.py).
 
 ## 4. Experiments and Configuration Tuning
 
@@ -62,7 +62,7 @@ Before the final full run, multiple sequence-length and stride configurations we
 - `3072` preserved large context while lowering per-step cost
 - `doc_stride=256` reduced overlap and total feature count compared with larger stride settings
 
-The profiled feature counts are documented in [README.md](/workspace/contract_qa/README.md). The most relevant combinations were:
+The profiled feature counts are documented in [configs/experiment_runbook.md](../configs/experiment_runbook.md). The most relevant combinations were:
 
 | `max_seq_length` | `doc_stride` | Features on sample | Expansion |
 | --- | ---: | ---: | ---: |
@@ -101,13 +101,13 @@ After GPU utilization and memory behavior were tested on the RTX 5090, the final
 | Gradient checkpointing | `false` |
 | Precision | `bf16` |
 
-This configuration is recorded in [run_summary.json](/workspace/contract_qa/outputs/train_full_epoch1_3072_stride256_bs4_ga2/run_summary.json).
+This configuration is recorded in [run_summary.json](../outputs/train_full_epoch1_3072_stride256_bs4_ga2/run_summary.json).
 
 ## 5. Final Fine-Tuning Run
 
 The final model checkpoint is stored in:
 
-- [outputs/train_full_epoch1_3072_stride256_bs4_ga2](/workspace/contract_qa/outputs/train_full_epoch1_3072_stride256_bs4_ga2)
+- [outputs/train_full_epoch1_3072_stride256_bs4_ga2](../outputs/train_full_epoch1_3072_stride256_bs4_ga2)
 
 Training completed successfully through the final step:
 
@@ -131,7 +131,7 @@ The final run used:
 
 ### 5.2 Training runtime and throughput
 
-Final training statistics from [run_summary.json](/workspace/contract_qa/outputs/train_full_epoch1_3072_stride256_bs4_ga2/run_summary.json):
+Final training statistics from [run_summary.json](../outputs/train_full_epoch1_3072_stride256_bs4_ga2/run_summary.json):
 
 - `train_runtime = 12022.2124s`
 - `train_samples_per_second = 10.355`
@@ -157,13 +157,13 @@ Compared with the earlier conservative configuration, the final setup:
 
 ## 6. Validation and Test Performance of the Fine-Tuned Model
 
-Although this report focuses on Part C, the quality of the fine-tuned model must still be demonstrated quantitatively.
+Although this report focuses on the CUAD fine-tuning experiment, the quality of the resulting model still needs to be demonstrated quantitatively.
 
 ### 6.1 Validation results
 
 Validation results are stored in:
 
-- [evaluation_summary.json](/workspace/contract_qa/outputs/eval_train_full_epoch1_3072_stride256_bs4_ga2_val/evaluation_summary.json)
+- [evaluation_summary.json](../outputs/eval_train_full_epoch1_3072_stride256_bs4_ga2_val/evaluation_summary.json)
 
 Best validation threshold:
 
@@ -186,7 +186,7 @@ Validation metrics:
 
 Test results are stored in:
 
-- [evaluation_summary.json](/workspace/contract_qa/outputs/eval_train_full_epoch1_3072_stride256_bs4_ga2_test/evaluation_summary.json)
+- [evaluation_summary.json](../outputs/eval_train_full_epoch1_3072_stride256_bs4_ga2_test/evaluation_summary.json)
 
 The test run reused the threshold selected on validation (`5.015625`).
 
@@ -218,7 +218,7 @@ The fine-tuned model clearly learned useful task-specific behavior. Several conc
 
 ## 8. Error Analysis of the Fine-Tuned Model
 
-Even though the fine-tuned model performs well overall, the residual errors reveal where future Part C improvements should focus.
+Even though the fine-tuned model performs well overall, the residual errors reveal where future CUAD improvements should focus.
 
 ### 8.1 Validation error profile
 
@@ -310,7 +310,7 @@ The fine-tuned model is often close to the correct clause region, even when it f
 
 ## 9. Limitations of the Current Fine-Tuning Work
 
-The Part C fine-tuning work is strong overall, but it still has several limitations:
+The CUAD fine-tuning work is strong overall, but it still has several limitations:
 
 - only one final full-epoch configuration was selected as the main model
 - the repository does not currently preserve a separate simple baseline implementation
@@ -319,7 +319,7 @@ The Part C fine-tuning work is strong overall, but it still has several limitati
 
 ## 10. Future Fine-Tuning Improvements
 
-The most useful Part C follow-up work would likely be:
+The most useful CUAD follow-up work would likely be:
 
 1. continue fine-tuning from the best checkpoint with a lower learning rate
 2. improve answer-span boundary precision
@@ -329,11 +329,11 @@ The most useful Part C follow-up work would likely be:
 
 ## 11. Conclusion
 
-The Part C fine-tuning task was successfully completed. A pre-trained Longformer model was adapted to the contract QA task using long-context sliding-window preprocessing and a memory-safe training pipeline. The final selected configuration used `3072` tokens, `doc_stride=256`, `batch_size=4`, `gradient_accumulation_steps=2`, BF16 precision, and no gradient checkpointing.
+The CUAD fine-tuning experiment was successful. A pre-trained Longformer model was adapted to the contract QA task using long-context sliding-window preprocessing and a memory-safe training pipeline. The final selected configuration used `3072` tokens, `doc_stride=256`, `batch_size=4`, `gradient_accumulation_steps=2`, BF16 precision, and no gradient checkpointing.
 
 The resulting fine-tuned model achieved:
 
 - **Validation:** `EM 61.09`, `F1 68.53`
 - **Test:** `EM 85.70`, `F1 88.61`
 
-The model’s strongest capability is no-answer detection, while its main remaining weakness is precise extraction of answerable spans from complex legal language. Overall, the fine-tuning work demonstrates that a Longformer-based approach is effective for long-document contract QA and provides a strong Part C contribution to the project.
+The model’s strongest capability is no-answer detection, while its main remaining weakness is precise extraction of answerable spans from complex legal language. Overall, the fine-tuning work demonstrates that a Longformer-based approach is effective for long-document contract QA and provides a strong CUAD baseline for the project.

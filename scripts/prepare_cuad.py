@@ -19,7 +19,7 @@ from contract_qa.data_utils import (
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Prepare grouped train/validation splits for contract QA.")
+    parser = argparse.ArgumentParser(description="Prepare grouped train/validation splits for CUAD contract QA.")
     parser.add_argument("--raw-train-path", type=Path, required=True)
     parser.add_argument("--raw-test-path", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -55,7 +55,7 @@ def main() -> None:
         },
     )
 
-    print(f"Saved prepared data to {args.output_dir}")
+    print(f"Saved prepared CUAD data to {args.output_dir}")
     print(f"Train rows: {len(split_train)}")
     print(f"Validation rows: {len(split_val)}")
     print(f"Test rows: {len(test_examples)}")
